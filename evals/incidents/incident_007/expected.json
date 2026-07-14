@@ -1,0 +1,8 @@
+{
+  "id": "incident_007",
+  "case_type": "solvable_contradiction",
+  "expected_status": "resolved",
+  "root_cause_keywords": ["connection", "pool", "exhausted", "timeout"],
+  "min_confidence": 0.0,
+  "unsolvable": false
+}

@@ -1,0 +1,8 @@
+{
+  "id": "incident_008",
+  "case_type": "healthy_control",
+  "expected_status": "insufficient_evidence",
+  "root_cause_keywords": [],
+  "max_confidence": 0.6,
+  "unsolvable": true
+}

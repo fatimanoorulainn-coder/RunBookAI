@@ -1,0 +1,5 @@
+{
+  "id": "incident_009",
+  "question": "What errors is user-service experiencing right now?",
+  "notes": "Healthy control: no errors exist for user-service. Agent should report no incident / abstain."
+}

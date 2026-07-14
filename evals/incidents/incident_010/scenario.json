@@ -1,0 +1,5 @@
+{
+  "id": "incident_010",
+  "question": "Why is ghost-service returning errors?",
+  "notes": "Unsolvable: ghost-service is not in the database and has no logs. Must abstain."
+}

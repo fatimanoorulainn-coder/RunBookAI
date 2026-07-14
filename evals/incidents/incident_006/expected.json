@@ -1,0 +1,8 @@
+{
+  "id": "incident_006",
+  "case_type": "solvable",
+  "expected_status": "resolved",
+  "root_cause_keywords": ["oom", "memory", "137", "limit"],
+  "min_confidence": 0.3,
+  "unsolvable": false
+}

@@ -1,0 +1,5 @@
+{
+  "id": "incident_001",
+  "question": "checkout-service is throwing 503 errors to users. What is the root cause?",
+  "notes": "Solvable: degraded deployment + crashloop pods + explicit port-bind error in logs."
+}

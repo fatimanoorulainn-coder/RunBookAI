@@ -1,0 +1,5 @@
+{
+  "id": "incident_003",
+  "question": "payment-service is degraded after a release. What went wrong?",
+  "notes": "Solvable: ImagePullBackOff — bad image tag / manifest unknown in logs."
+}

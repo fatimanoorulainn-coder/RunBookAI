@@ -1,0 +1,8 @@
+{
+  "id": "incident_002",
+  "case_type": "solvable",
+  "expected_status": "resolved",
+  "root_cause_keywords": ["port", "bind", "crashloop", "8080"],
+  "min_confidence": 0.3,
+  "unsolvable": false
+}

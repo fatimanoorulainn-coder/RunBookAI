@@ -1,0 +1,5 @@
+{
+  "id": "incident_005",
+  "question": "inventory-service pods keep dying. What is the root cause?",
+  "notes": "Solvable: OOMKilled, exit code 137, memory limit exceeded in logs."
+}

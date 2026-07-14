@@ -1,0 +1,5 @@
+{
+  "id": "incident_002",
+  "question": "The checkout-v2 deployment is degraded and pods keep restarting. Why?",
+  "notes": "Solvable: same checkout incident, phrased around the deployment/crashloop."
+}

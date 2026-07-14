@@ -1,0 +1,8 @@
+{
+  "id": "incident_003",
+  "case_type": "solvable",
+  "expected_status": "resolved",
+  "root_cause_keywords": ["image", "pull", "manifest", "tag"],
+  "min_confidence": 0.3,
+  "unsolvable": false
+}

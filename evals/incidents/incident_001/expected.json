@@ -1,0 +1,8 @@
+{
+  "id": "incident_001",
+  "case_type": "solvable",
+  "expected_status": "resolved",
+  "root_cause_keywords": ["port", "bind", "8080", "address already in use"],
+  "min_confidence": 0.3,
+  "unsolvable": false
+}

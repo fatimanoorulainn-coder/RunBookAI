@@ -1,0 +1,5 @@
+{
+  "id": "incident_012",
+  "question": "Investigate the auth-service latency spike.",
+  "notes": "Unsolvable: auth-service does not exist; no metadata, no logs. Must abstain."
+}

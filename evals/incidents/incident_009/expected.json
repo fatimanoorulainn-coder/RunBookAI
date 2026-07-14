@@ -1,0 +1,8 @@
+{
+  "id": "incident_009",
+  "case_type": "healthy_control",
+  "expected_status": "resolved",
+  "root_cause_keywords": [],
+  "max_confidence": 0.6,
+  "unsolvable": false
+}

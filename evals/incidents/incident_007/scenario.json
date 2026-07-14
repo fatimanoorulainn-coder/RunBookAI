@@ -1,0 +1,5 @@
+{
+  "id": "incident_007",
+  "question": "notification-service is failing to send messages. What is happening?",
+  "notes": "Solvable but CONTRADICTION: metadata says Healthy while logs show DB pool exhaustion. Confidence should be LOWER due to contradiction penalty."
+}
