@@ -1,0 +1,21 @@
+2026-07-14T00:10:01 INFO api-gateway Request received GET /checkout
+2026-07-14T00:10:03 INFO user-service Authentication successful user_id=4521
+2026-07-14T00:10:05 ERROR checkout-service Connection refused while connecting to payment-service
+2026-07-14T00:10:06 ERROR checkout-service Failed to bind port 8080 address already in use
+2026-07-14T00:10:07 WARN checkout-service Restart attempt 3 after container crash
+2026-07-14T00:10:08 ERROR checkout-service Health check failed status=503
+2026-07-14T00:11:00 INFO inventory-service Inventory lookup completed successfully
+2026-07-14T00:12:10 INFO payment-service Transaction processed successfully
+2026-07-14T00:13:30 WARN database Connection pool usage above 80 percent
+2026-07-14T00:14:20 ERROR checkout-service Database timeout waiting for connection
+2026-07-14T00:15:01 INFO notification-service Email notification sent
+2026-07-14T00:16:55 INFO monitoring-service Metrics collection completed
+2026-07-14T00:20:11 ERROR payment-service Failed to pull image payment-v3:latest manifest unknown
+2026-07-14T00:20:12 ERROR payment-service ImagePullBackOff back-off pulling image payment-v3:latest
+2026-07-14T00:20:14 ERROR payment-service Container cannot start image tag not found in registry
+2026-07-14T00:25:03 ERROR inventory-service Container killed OOMKilled exit code 137
+2026-07-14T00:25:04 ERROR inventory-service memory limit exceeded 512Mi requested vs 512Mi limit
+2026-07-14T00:25:06 ERROR inventory-service Pod restarting after OOMKilled event
+2026-07-14T00:30:41 ERROR notification-service database connection pool exhausted
+2026-07-14T00:30:42 ERROR notification-service timeout acquiring connection from pool after 30s
+2026-07-14T00:30:45 ERROR notification-service failed to deliver message connection unavailable
