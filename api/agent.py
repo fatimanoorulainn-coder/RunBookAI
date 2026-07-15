@@ -1,5 +1,5 @@
 """
-api/agent.py — Week 2 Day 9 agent loop.
+api/agent.py — Week 2 Day 9 agent loop (+ Week 4 evidence, Week 5 API-ready).
 
 - model calls tools in a loop (Groq / OpenAI-compatible tool calling)
 - hard step budget with forced termination
@@ -7,18 +7,20 @@ api/agent.py — Week 2 Day 9 agent loop.
 - submit_finding is the ONLY way to return a final answer
 - confidence is computed deterministically AFTER the model submits
 - Day 9: abstention — a FORCED stop with low confidence is downgraded to
-  insufficient_evidence instead of presenting a best guess. Empty tool
-  results do NOT count as evidence, so a no-data run scores near zero.
+  insufficient_evidence instead of presenting a best guess.
+- Day 19/21: the collected Evidence (with source_location + relevance_score)
+  is attached to the returned Investigation so the API/UI can render it.
 """
 
 import json
 import time
-from groq import Groq, BadRequestError
 from datetime import datetime, timezone
+
+import psycopg2
 from dotenv import load_dotenv
 load_dotenv()
 
-from groq import Groq
+from groq import Groq, BadRequestError
 
 from api.models import (
     Evidence,
@@ -33,12 +35,10 @@ from api.models import (
     SUBMIT_FINDING_TOOL,
 )
 from api.confidence import calculate_confidence, detect_contradiction
-
+from api.evidence_utils import derive_location, compute_relevance
 from api.tools import query_service_metadata, search_logs, search_runbooks
 
-import psycopg2
-
-MODEL = "llama-3.3-70b-versatile"  
+MODEL = "llama-3.3-70b-versatile"
 MAX_STEPS = 6
 CONFIDENCE_THRESHOLD = 0.4   # below this at a FORCED stop => abstain, don't guess
 
@@ -52,8 +52,6 @@ TOOLS = [
 ]
 
 # tool name -> (callable, EvidenceSource, needs_cursor)
-# needs_cursor=True means the agent injects the DB cursor at call time;
-# the LLM only ever supplies the query args (service_name, pattern, ...).
 TOOL_REGISTRY = {
     "query_service_metadata": (query_service_metadata, EvidenceSource.METADATA, True),
     "search_logs": (search_logs, EvidenceSource.LOGS, False),
@@ -69,8 +67,8 @@ SYSTEM_PROMPT = (
     "conclude. submit_finding is the ONLY way to finish. Do not report a "
     "confidence score; it is computed separately. If the tools return no "
     "relevant evidence, do NOT guess — set status to insufficient_evidence and "
-    "list what was missing."
-     "After metadata and logs point to a likely failure mode, call "
+    "list what was missing. "
+    "After metadata and logs point to a likely failure mode, call "
     "search_runbooks once with a short description of that failure "
     "(e.g. 'pod ImagePullBackOff cannot pull image') to retrieve the "
     "relevant runbook as supporting context. "
@@ -110,12 +108,21 @@ def _finalize(args: dict, evidence: list[Evidence], forced: bool = False) -> Inv
         evidence_count=len(evidence),
         contradiction=detect_contradiction(evidence),
     )
+    status = finding.status
+    missing = finding.missing_evidence
     # Day 9: a forced stop with low confidence must abstain, not present a best guess.
     if forced and score < CONFIDENCE_THRESHOLD:
-        finding.status = InvestigationStatus.INSUFFICIENT_EVIDENCE
-        if not finding.missing_evidence:
-            finding.missing_evidence = ["Confidence below threshold at step budget."]
-    return Investigation.from_finding(finding, score)
+        status = InvestigationStatus.INSUFFICIENT_EVIDENCE
+        if not missing:
+            missing = ["Confidence below threshold at step budget."]
+    # evidence passed at construction so it always populates on the returned object
+    return Investigation(
+        root_cause=finding.root_cause,
+        status=status,
+        confidence_score=score,
+        missing_evidence=missing,
+        evidence=evidence,
+    )
 
 
 def _fallback(evidence: list[Evidence]) -> Investigation:
@@ -129,6 +136,7 @@ def _fallback(evidence: list[Evidence]) -> Investigation:
         status=InvestigationStatus.INSUFFICIENT_EVIDENCE,
         confidence_score=score,
         missing_evidence=["Investigation exceeded step budget before submit_finding."],
+        evidence=evidence,
     )
 
 
@@ -142,15 +150,16 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
     traces: list[InvestigationTrace] = []
     seen_calls: set[str] = set()
 
-    # One DB connection for the whole investigation; injected into tools that need it.
+    # One read-only DB connection for the whole investigation.
     conn = psycopg2.connect(
         host="localhost",
         port=5432,
         database="runbookai",
-        user="postgres",
-        password="potty123",
+        user="runbookai_ro",
+        password="ro_potty123",
     )
     cursor = conn.cursor()
+    cursor.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
     try:
         for step in range(1, MAX_STEPS + 1):
             try:
@@ -158,7 +167,7 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
                     model=MODEL,
                     messages=messages,
                     tools=TOOLS,
-                    tool_choice="required",   # must call a tool; no free-text answers
+                    tool_choice="required",
                 )
             except BadRequestError as exc:
                 if "tool_use_failed" in str(exc):
@@ -187,9 +196,7 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
                 args = _safe_json(raw_args)
 
                 # ---- the only exit ----
-                # ---- the only exit ----
                 if name == "submit_finding":
-                    # Don't allow a conclusion before ANY evidence was gathered.
                     if not evidence:
                         messages.append({
                             "role": "tool",
@@ -202,8 +209,6 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
                         })
                         continue
                     return _finalize(args, evidence), traces
-                    # voluntary finish: trust the model (forced defaults to False)
-                    
 
                 # ---- duplicate-call detection ----
                 signature = _arg_signature(name, raw_args)
@@ -222,20 +227,18 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
 
                 # ---- execute a real tool ----
                 fn, source, needs_cursor = TOOL_REGISTRY[name]
-                call_kwargs = dict(args)              # LLM-supplied args
+                call_kwargs = dict(args)
                 if needs_cursor:
-                    call_kwargs["cursor"] = cursor     # code-supplied infrastructure arg
+                    call_kwargs["cursor"] = cursor
 
                 start = time.perf_counter()
                 try:
                     output = fn(**call_kwargs)
-                except Exception:                      # missing service, bad args, etc.
-                    output = ""                         # treat a failed tool as no evidence
+                except Exception:
+                    output = ""
                 latency_ms = (time.perf_counter() - start) * 1000
                 output_str = output if isinstance(output, str) else json.dumps(output)
 
-                # Day 9: only real results count toward confidence. Empty list/dict/
-                # string or None is NOT evidence — otherwise a no-data run looks confident.
                 is_empty = output is None or (
                     isinstance(output, (list, dict, str)) and len(output) == 0
                 )
@@ -243,14 +246,15 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
                     evidence.append(Evidence(
                         source=source,
                         content=output_str,
+                        source_location=derive_location(source, output_str),
                         timestamp=datetime.now(timezone.utc),
+                        relevance_score=compute_relevance(question, output_str),
                     ))
 
-                # trace + message ALWAYS happen, so the model still sees "nothing found"
                 traces.append(InvestigationTrace(
                     step_number=step,
                     tool_name=name,
-                    tool_input=args,                   # log only LLM args, not the cursor
+                    tool_input=args,
                     tool_output=output_str,
                     latency_ms=latency_ms,
                 ))
@@ -260,7 +264,6 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
                     "content": output_str or "(no results found)",
                 })
 
-            # budget hit or duplicate seen -> force a final submit next
             if force_finish or step == MAX_STEPS:
                 messages.append({"role": "system", "content": FORCE_TERMINATION_MSG})
                 break
@@ -278,7 +281,6 @@ def run_investigation(question: str) -> tuple[Investigation, list[InvestigationT
         msg = response.choices[0].message
         if msg.tool_calls:
             args = _safe_json(msg.tool_calls[0].function.arguments)
-            # forced finish: apply the abstention threshold
             return _finalize(args, evidence, forced=True), traces
 
         return _fallback(evidence), traces

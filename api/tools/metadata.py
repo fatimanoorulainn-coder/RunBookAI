@@ -1,99 +1,73 @@
-"""
-Database metadata lookup tools.
+"""Database metadata lookup .
 
-Provides service health information for the investigation agent.
+Flow: model generates a parameterized SELECT -> sql_guard validates it ->
+execute read-only with a bound service_name -> parse results BY COLUMN NAME
+(robust to column reordering). Any failure falls back to a trusted static
+query, so a bad LLM turn degrades to "still works", never "incident breaks".
 """
-
 from typing import Any
 
+from api.tools.sql_gen import (
+    generate_metadata_sql, STATIC_SQL, REQUIRED_COLUMNS,
+)
+from api.tools.sql_guard import validate_select, enforce_limit, UnsafeSQL
 
-def query_service_metadata(
-    cursor,
-    service_name: str,
-) -> dict[str, Any]:
-    """
-    Retrieve complete health snapshot for a service.
 
-    Joins:
-    - services
-    - deployments
-    - pods
+def _run(cursor, sql: str, service_name: str) -> list[dict]:
+    """Execute a validated SELECT and return rows as dicts keyed by column name."""
+    cursor.execute(enforce_limit(sql), {"service_name": service_name})
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    Args:
-        cursor:
-            Active psycopg2 cursor.
 
-        service_name:
-            Name of the service.
-
-    Returns:
-        Dictionary containing service health information.
-
-    Raises:
-        ValueError:
-            If service does not exist.
-    """
-
-    query = """
-        SELECT
-            s.id AS service_id,
-            s.name AS service_name,
-            s.namespace,
-            s.owner_team,
-
-            d.id AS deployment_id,
-            d.name AS deployment_name,
-            d.replicas_expected,
-            d.replicas_available,
-            d.status AS deployment_status,
-
-            p.name AS pod_name,
-            p.phase AS pod_phase,
-            p.restart_count,
-            p.status_reason
-
-        FROM services s
-
-        LEFT JOIN deployments d
-            ON s.id = d.service_id
-
-        LEFT JOIN pods p
-            ON d.id = p.deployment_id
-
-        WHERE s.name = %s;
-    """
-
-    cursor.execute(query, (service_name,))
-
-    rows = cursor.fetchall()
-
-    if not rows:
-        raise ValueError(
-            f"Service '{service_name}' does not exist"
-        )
-
-    service = {
-        "service_name": rows[0][1],
-        "namespace": rows[0][2],
-        "owner_team": rows[0][3],
+def _build(rows: list[dict]) -> dict[str, Any]:
+    first = rows[0]
+    return {
+        "service_name": first["service_name"],
+        "namespace": first["namespace"],
+        "owner_team": first["owner_team"],
         "deployment": {
-            "id": rows[0][4],
-            "name": rows[0][5],
-            "replicas_expected": rows[0][6],
-            "replicas_available": rows[0][7],
-            "status": rows[0][8],
+            "id": first["deployment_id"],
+            "name": first["deployment_name"],
+            "replicas_expected": first["replicas_expected"],
+            "replicas_available": first["replicas_available"],
+            "status": first["deployment_status"],
         },
-        "pods": [],
+        "pods": [
+            {
+                "name": r["pod_name"],
+                "phase": r["pod_phase"],
+                "restart_count": r["restart_count"],
+                "reason": r["status_reason"],
+            }
+            for r in rows if r["pod_name"] is not None
+        ],
     }
 
-    for row in rows:
-        service["pods"].append(
-            {
-                "name": row[9],
-                "phase": row[10],
-                "restart_count": row[11],
-                "reason": row[12],
-            }
-        )
 
-    return service
+def query_service_metadata(cursor, service_name: str) -> dict[str, Any]:
+    """Retrieve a service health snapshot. Same return shape as before."""
+    rows = None
+
+    # 1. try the model-generated, validated query
+    try:
+        sql = validate_select(generate_metadata_sql())
+        rows = _run(cursor, sql, service_name)
+        if rows and not all(c in rows[0] for c in REQUIRED_COLUMNS):
+            rows = None                       # missing an expected alias -> distrust
+    except (UnsafeSQL, Exception):
+        # a bad/failed query can leave the transaction aborted; clear it
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+        rows = None
+
+    # 2. trusted static fallback
+    if rows is None:
+        rows = _run(cursor, STATIC_SQL, service_name)
+
+    if not rows:
+        raise ValueError(f"Service '{service_name}' does not exist")
+
+    return _build(rows)

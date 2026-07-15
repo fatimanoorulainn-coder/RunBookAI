@@ -5,6 +5,9 @@ Week 1:
 - Database-backed investigations
 - Manual diagnostic tools
 - Investigation trace persistence
+Week 5 Day 21:
+- Agent-backed /investigate endpoint returning investigation + traces + evidence
+- CORS for the Next.js dev server
 """
 
 import uuid
@@ -15,10 +18,12 @@ from datetime import datetime
 
 import psycopg2
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from api.tools.metadata import query_service_metadata
 from api.tools.logs import search_logs
+from api.agent import run_investigation
 
 
 # -------------------------------------------------
@@ -66,6 +71,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Allow the Next.js dev server (localhost:3000) to call this API from the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # -------------------------------------------------
 # Schemas
@@ -89,6 +102,11 @@ class InvestigationResponse(BaseModel):
     root_cause: str
     confidence_score: float
     steps: list[str]
+
+
+# Week 5: the agent endpoint only needs a free-text question.
+class AgentInvestigateRequest(BaseModel):
+    question: str = Field(min_length=5, max_length=500)
 
 
 # -------------------------------------------------
@@ -201,6 +219,25 @@ def health():
             status_code=503,
             detail="Database unavailable",
         )
+
+
+# Week 5: agent-backed endpoint the frontend calls.
+# Returns the full investigation (incl. evidence) + the execution trace.
+@app.post("/investigate")
+def investigate_agent(request: AgentInvestigateRequest):
+
+    logger.info("Agent investigation: %s", request.question)
+
+    try:
+        investigation, traces = run_investigation(request.question)
+    except Exception:
+        logger.exception("Agent investigation failed")
+        raise HTTPException(status_code=500, detail="Investigation failed")
+
+    return {
+        "investigation": investigation.model_dump(mode="json"),
+        "traces": [t.model_dump(mode="json") for t in traces],
+    }
 
 
 @app.post(

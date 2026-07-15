@@ -6,8 +6,10 @@ Week 2 Day 6 (+ Day 8 updates):
 - Finding (LLM output) vs Investigation (enriched final)
 - Agent trace schema
 - Tool definitions incl. submit_finding
+Week 4 Day 19: Evidence gains id/source_location/relevance_score.
+Week 5 Day 21: Investigation carries its evidence list for the API/UI.
 """
-
+import uuid
 from enum import Enum
 from datetime import datetime, timezone
 from typing import Any
@@ -39,9 +41,12 @@ class InvestigationStatus(str, Enum):
 class Evidence(BaseModel):
     """A single piece of evidence discovered by tools."""
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     source: EvidenceSource
     content: str = Field(min_length=1, description="Actual evidence content")
+    source_location: str = ""
     timestamp: datetime | str
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 # =====================================================
@@ -69,13 +74,15 @@ class Finding(BaseModel):
 
 class Investigation(BaseModel):
     """
-    Final conclusion = Finding + deterministic confidence.
+    Final conclusion = Finding + deterministic confidence + the evidence
+    that supported it (attached for the API / UI to render).
     """
 
     root_cause: str
     status: InvestigationStatus
     confidence_score: float = Field(ge=0.0, le=1.0)
     missing_evidence: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
 
     @classmethod
     def from_finding(cls, finding: "Finding", confidence_score: float) -> "Investigation":
